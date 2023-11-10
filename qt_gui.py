@@ -9,9 +9,17 @@ from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QDockWidget \
 import time
 
 SAMPLE_RATE = 48000
-BLOCK_SIZE = 128
-FRAME_WIDTH = 640
-FRAME_HEIGHT = 480
+BLOCK_SIZE = 256
+CAMERA_RES = '240p'
+frame_size = {
+    '240p': [352, 240],
+    '360p': [480, 360],
+    '480p': [640, 480],
+    '720p': [1080, 720],
+    '1080p': [1920, 1080]
+}
+FRAME_WIDTH = frame_size[CAMERA_RES][0]
+FRAME_HEIGHT = frame_size[CAMERA_RES][1]
 
 pa = pyaudio.PyAudio()
 
@@ -27,7 +35,7 @@ class Microphone:
         )
 
     def get_data(self):
-        return self.stream.read(BLOCK_SIZE)
+        return self.stream.read(BLOCK_SIZE*2)
 
 
 class AudioThread(QThread):
@@ -43,6 +51,9 @@ class AudioThread(QThread):
         )
 
     def run(self):
+        # if this is the current client, then don't play audio
+        if self.client.microphone is not None:
+            return
         while True:
             self.update_audio()
 
@@ -54,7 +65,7 @@ class AudioThread(QThread):
 
 class Camera:
     def __init__(self):
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(2)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
 
@@ -62,7 +73,7 @@ class Camera:
         ret, frame = self.cap.read()
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            return frame
+            return cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT), interpolation=cv2.INTER_AREA)
 
 
 class VideoWidget(QWidget):
@@ -103,6 +114,7 @@ class VideoWidget(QWidget):
 class VideoListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.all_items = {}
         self.init_ui()
 
     def init_ui(self):
@@ -120,6 +132,11 @@ class VideoListWidget(QListWidget):
         # item.setSizeHint(video_widget.sizeHint())
         item.setSizeHint(QSize(FRAME_WIDTH, FRAME_HEIGHT))
         self.setItemWidget(item, video_widget)
+        self.all_items[client.name] = item
+    
+    def remove_client(self, name: str):
+        self.removeItemWidget(self.all_items[name])
+        del self.all_items[name]
 
 
 class ChatWidget(QWidget):
@@ -171,17 +188,21 @@ class ChatWidget(QWidget):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, client):
+    def __init__(self, client, server_conn):
         super().__init__()
         self.client = client
-        self.audio_threads = []
+        self.server_conn = server_conn
+        self.audio_threads = {}
 
+        self.server_conn.add_client_signal.connect(self.add_client)
+        self.server_conn.remove_client_signal.connect(self.remove_client)
+        self.server_conn.start()
         self.init_ui()
-        self.init_client(self.client)
+        self.add_client(self.client)
 
     def init_ui(self):
         self.setWindowTitle("Video Conferencing")
-        self.setGeometry(100, 100, 1080, 720)
+        self.setGeometry(0, 0, 1920, 1000)
 
         self.video_list_widget = VideoListWidget()
         self.setCentralWidget(self.video_list_widget)
@@ -191,8 +212,17 @@ class MainWindow(QMainWindow):
         self.sidebar.setWidget(self.chat_widget)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.sidebar)
     
-    def init_client(self, client):
+    def add_client(self, client):
         self.video_list_widget.add_client(client)
+        # self.video_list_widget.add_client(client)
 
-        self.audio_threads.append(AudioThread(client))
-        self.audio_threads[-1].start()
+        self.audio_threads[client.name] = AudioThread(client)
+        self.audio_threads[client.name].start()
+    
+    def remove_client(self, name: str):
+        self.video_list_widget.remove_client(name)
+        self.audio_threads[name].terminate()
+        del self.audio_threads[name]
+
+    def add_msg(self, name: str, msg: str):
+        self.chat_widget.central_widget.append(f"{name} -> {self.client.name}: {msg}")
