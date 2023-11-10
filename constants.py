@@ -1,5 +1,6 @@
 import socket
 import struct
+import pickle
 from dataclasses import astuple, dataclass
 
 PORT = 53535
@@ -7,7 +8,7 @@ MAIN_PORT = 53530
 VIDEO_PORT = 53531
 AUDIO_PORT = 53532
 # ADDR = ('', PORT)
-DISCONNECT_MESSAGE = 'QUIT!'
+DISCONNECT = 'QUIT!'
 OK = 'OK'
 SIZE = 1024
 
@@ -18,18 +19,18 @@ POST = 'POST'
 ADD = 'ADD'
 RM = 'RM'
 
-VIDEO = 'VIDEO'
-AUDIO = 'AUDIO'
-TEXT = 'TEXT'
-FILE = 'FILE'
+VIDEO = 'Video'
+AUDIO = 'Audio'
+TEXT = 'Text'
+FILE = 'File'
 
 
-def send_msg(self, msg):
+def send_bytes(self, msg):
     # Prefix each message with a 4-byte length (network byte order)
     msg = struct.pack('>I', len(msg)) + msg
     self.sendall(msg)
 
-def recv_msg(self):
+def recv_bytes(self):
     # Read message length and unpack it into an integer
     raw_msglen = self.recvall(4)
     if not raw_msglen:
@@ -48,9 +49,15 @@ def recvall(self, n):
         data.extend(packet)
     return data
 
-socket.socket.send_msg = send_msg
-socket.socket.recv_msg = recv_msg
+def disconnect(self):
+    msg = Message(SERVER, DISCONNECT)
+    self.send_bytes(pickle.dumps(msg))
+    self.close()
+
+socket.socket.send_bytes = send_bytes
+socket.socket.recv_bytes = recv_bytes
 socket.socket.recvall = recvall
+socket.socket.disconnect = disconnect
 
 @dataclass
 class Message:

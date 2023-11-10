@@ -3,14 +3,14 @@ import socket
 import pickle
 from collections import defaultdict
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QThreadPool, QRunnable, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QApplication
 from qt_gui import MainWindow, Camera, Microphone
 
 from constants import *
 
 IP = socket.gethostbyname(socket.gethostname())
-ADDR = (IP, MAIN_PORT)
+# ADDR = (IP, MAIN_PORT)
 
 
 class Client:
@@ -40,95 +40,69 @@ class Client:
         return self.audio_data
 
 
+class Worker(QRunnable):
+    def __init__(self, fn, *args, **kwargs):
+        super(Worker, self).__init__()
+        # Store constructor arguments (re-used for processing)
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+
+    @pyqtSlot()
+    def run(self):
+        self.fn(*self.args, **self.kwargs)
+
+
 class ServerConnection(QThread):
     add_client_signal = pyqtSignal(Client)
     remove_client_signal = pyqtSignal(str)
 
-    def __init__(self, socket: socket.socket, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.socket = socket
-    
+        self.threadpool = QThreadPool()
+
+        self.main_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.audio_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        self.connected = False
+
     def run(self):
-        self.socket.connect(ADDR)
-        client.name = input("Client name: ")
-        self.socket.send_msg(client.name.encode())
-        self.handle_server()
+        self.init_conn()
+        self.start_conn_threads()
+        self.start_media_threads()
 
-    def handle_server(self):
-        connected = True
-        while connected:
-            try:
-                data = self.socket.recv_msg()
-            except OSError:
-                return
-            try:
-                msg: Message = pickle.loads(data)
-            except pickle.UnpicklingError:
-                continue
-            except EOFError:
-                msg = None
-            if not msg or msg.request == DISCONNECT_MESSAGE:
-                connected = False
-                break
+        self.add_client_signal.emit(client)
 
-            try:
-                self.handle_msg(msg)
-            except Exception as e:
-                print(f"[ERROR] {e}")
+    def init_conn(self):
+        self.main_socket.connect((IP, MAIN_PORT))
+        self.video_socket.connect((IP, VIDEO_PORT))
+        self.audio_socket.connect((IP, AUDIO_PORT))
 
-        # try:
-        #     disconnect_server(client, "server")
-        # except Exception:
-        #     pass
-        self.socket.close()
+        self.name = input("Client name: ")
+        client.name = self.name
+        self.connected = True
+
+        name_bytes = self.name.encode()
+        self.main_socket.send_bytes(name_bytes)
+        self.video_socket.send_bytes(name_bytes)
+        self.audio_socket.send_bytes(name_bytes)
     
-    def handle_msg(self, msg: Message):
-        global client
-        # print(msg)
-        name, request, data_type, data = msg
-        if request == GET:
-            if data_type == VIDEO:
-                video_frame = client.get_video()
-                self.send_msg(POST, VIDEO, video_frame)
-            elif data_type == AUDIO:
-                audio_data = client.get_audio()
-                self.send_msg(POST, AUDIO, audio_data)
-            elif data_type == FILE:
-                file_name = data
-                #TODO: send file until EOF
-                pass
-        elif request == POST:
-            if data_type == VIDEO:
-                all_clients[name].video_frame = data
-            elif data_type == AUDIO:
-                all_clients[name].audio_data = data
-            elif data_type == TEXT:
-                window.add_msg(name, msg=data)
-            elif data_type == FILE:
-                file_name = data
-                #TODO: receive file until EOF
-                pass
-        elif request == ADD:
-            print(msg)
-            if name == client.name:
-                return
-            new_client = Client(name, addr=data)
-            all_clients[name] = new_client
-            self.add_client_signal.emit(new_client)
-        elif request == RM:
-            print(msg)
-            if name not in all_clients:
-                return
-            self.remove_client_signal.emit(name)
-            del all_clients[name]
+    def start_conn_threads(self):
+        pass
+
+    def start_media_threads(self):
+        pass
     
-    def send_msg(self, request: str, data_type: str = None, data: any = None):
-        msg_bytes = pickle.dumps(Message(client.name, request, data_type, data))
-        # print(f"[SENDING] size={len(msg_bytes)}")
-        self.socket.send_msg(msg_bytes)
+    def media_broadcast_loop(self, conn, media):
+        pass
 
+    def handle_conn(self, conn, media):
+        pass
 
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    def handle_msg(self, msg):
+        pass
+
 client = Client("You", None)
 
 all_clients = defaultdict(lambda: Client("", None))
@@ -136,7 +110,7 @@ all_clients = defaultdict(lambda: Client("", None))
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    server_conn = ServerConnection(client_socket)
+    server_conn = ServerConnection()
     window = MainWindow(client, server_conn)
     window.show()
 

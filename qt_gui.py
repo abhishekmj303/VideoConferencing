@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         self.server_conn.remove_client_signal.connect(self.remove_client)
         self.server_conn.start()
         self.init_ui()
-        self.add_client(self.client)
+        # self.add_client(self.client)
 
     def init_ui(self):
         self.setWindowTitle("Video Conferencing")
