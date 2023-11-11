@@ -14,11 +14,13 @@ SIZE = 1024
 
 SERVER = 'SERVER'
 
+# requests
 GET = 'GET'
 POST = 'POST'
 ADD = 'ADD'
 RM = 'RM'
 
+# data types
 VIDEO = 'Video'
 AUDIO = 'Audio'
 TEXT = 'Text'
@@ -65,10 +67,14 @@ class Message:
     request: str
     data_type: str = None
     data: any = None
-    to_names: set[str] = set()
+    to_names: set[str] = None
 
     def __str__(self):
-        return f"[{self.from_name}] {self.request}:{self.data_type} -> {self.to_names} {self.data}"
+        if self.data_type in [VIDEO, AUDIO]:
+            data = ""
+        else:
+            data = self.data
+        return f"[{self.from_name}] {self.request}:{self.data_type} -> {self.to_names} {data}"
 
     def __iter__(self):
         return iter(astuple(self))

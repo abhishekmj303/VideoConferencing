@@ -226,3 +226,4 @@ class MainWindow(QMainWindow):
 
     def add_msg(self, name: str, msg: str):
         self.chat_widget.central_widget.append(f"{name} -> {self.client.name}: {msg}")
+    

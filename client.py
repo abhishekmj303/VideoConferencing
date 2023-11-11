@@ -116,6 +116,7 @@ class ServerConnection(QThread):
         self.audio_socket.disconnect()
     
     def send_msg(self, conn: socket.socket, msg: Message):
+        print("Sending..", msg)
         conn.send_bytes(pickle.dumps(msg))
     
     def media_broadcast_loop(self, conn: socket.socket, media: str):
@@ -152,22 +153,34 @@ class ServerConnection(QThread):
                 continue
 
     def handle_msg(self, msg):
+        global all_clients
+        client_name = msg.from_name
         if msg.request == POST:
+            if client_name not in all_clients:
+                print(f"[{self.name}] [ERROR] Invalid client name")
+                return
             if msg.data_type == VIDEO:
-                client.video_frame = msg.data
+                all_clients[client_name].video_frame = msg.data
             elif msg.data_type == AUDIO:
-                client.audio_data = msg.data
+                all_clients[client_name].audio_data = msg.data
             else:
                 print(f"[{self.name}] [ERROR] Invalid data type")
         elif msg.request == ADD:
-            client_name = msg.from_name
-            client_addr = msg.data
-            all_clients[client_name] = Client(client_name, client_addr)
+            if client_name in all_clients:
+                print(f"[{self.name}] [ERROR] Client already exists")
+                return
+            all_clients[client_name] = Client(client_name)
             self.add_client_signal.emit(all_clients[client_name])
+        elif msg.request == RM:
+            if client_name not in all_clients:
+                print(f"[{self.name}] [ERROR] Invalid client name")
+                return
+            self.remove_client_signal.emit(client_name)
+            all_clients.pop(client_name)
 
-client = Client("You", None)
+client = Client("You", current_device=True)
 
-all_clients = defaultdict(lambda: Client("", None))
+all_clients = defaultdict(lambda: Client(""))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

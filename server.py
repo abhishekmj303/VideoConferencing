@@ -120,8 +120,15 @@ def disconnect_client(client: Client):
 
 
 def handle_main_conn(name: str):
-    client = clients[name]
+    client: Client = clients[name]
     conn = client.main_conn
+
+    for client_name in clients:
+        if client_name == name:
+            continue
+        client.send_msg(client_name, ADD)
+    
+    broadcast_msg(name, ADD)
 
     while client.connected:
         msg_bytes = conn.recv_bytes()
@@ -159,7 +166,6 @@ def main_server():
             conn.disconnect()
             continue
         clients[name] = Client(name, conn, addr, True)
-        broadcast_msg(name, ADD)
         print(f"[NEW CONNECTION] {name} connected to Main Server")
 
         main_conn_thread = threading.Thread(target=handle_main_conn, args=(name,))
