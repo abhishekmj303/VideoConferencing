@@ -65,9 +65,10 @@ class Message:
     request: str
     data_type: str = None
     data: any = None
+    to_names: set[str] = set()
 
     def __str__(self):
-        return f"[{self.from_name}] {self.request}:{self.data_type} {self.data}"
+        return f"[{self.from_name}] {self.request}:{self.data_type} -> {self.to_names} {self.data}"
 
     def __iter__(self):
         return iter(astuple(self))

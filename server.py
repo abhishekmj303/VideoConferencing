@@ -31,13 +31,24 @@ class Client:
         else:
             conn = self.main_conn
         conn.send_bytes(pickle.dumps(msg))
-    
-    def broadcast_msg(self, request: str, data_type: str = None, data: any = None):
-        all_clients = tuple(clients.values())
-        for client in all_clients:
-            if client.name == self.name:
-                continue
-            client.send_msg(self.name, request, data_type, data)
+
+
+def broadcast_msg(from_name: str, request: str, data_type: str = None, data: any = None):
+    all_clients = tuple(clients.values())
+    for client in all_clients:
+        if client.name == from_name:
+            continue
+        client.send_msg(from_name, request, data_type, data)
+
+
+def multicast_msg(from_name: str, request: str, to_names: set[str], data_type: str = None, data: any = None):
+    if not to_names:
+        broadcast_msg(from_name, request, data_type, data)
+        return
+    for name in to_names:
+        if name not in clients:
+            continue
+        clients[name].send_msg(from_name, request, data_type, data)
 
 
 def handle_media_conn(name: str, media: str):
@@ -57,7 +68,7 @@ def handle_media_conn(name: str, media: str):
             print(f"[{name}] [{media}] [ERROR] UnpicklingError")
             continue
 
-        client.broadcast_msg(msg.request, msg.data_type, msg.data)
+        broadcast_msg(name, msg.request, msg.data_type, msg.data)
     
     conn.disconnect()
     if media == VIDEO:
@@ -96,7 +107,7 @@ def media_server(media: str):
 def disconnect_client(client: Client):
     global clients
 
-    client.broadcast_msg(RM)
+    broadcast_msg(client.name, RM)
 
     client.connected = False
     client.main_conn.disconnect()
@@ -125,7 +136,7 @@ def handle_main_conn(name: str):
         print(msg)
         if msg.request == DISCONNECT:
             break
-        client.broadcast_msg(msg.request, msg.data_type, msg.data)
+        multicast_msg(name, msg.request, msg.to_names, msg.data_type, msg.data)
     
     disconnect_client(client)
 
@@ -148,7 +159,7 @@ def main_server():
             conn.disconnect()
             continue
         clients[name] = Client(name, conn, addr, True)
-        clients[name].broadcast_msg(ADD)
+        broadcast_msg(name, ADD)
         print(f"[NEW CONNECTION] {name} connected to Main Server")
 
         main_conn_thread = threading.Thread(target=handle_main_conn, args=(name,))
