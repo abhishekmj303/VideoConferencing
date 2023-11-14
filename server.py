@@ -169,8 +169,9 @@ def main_server():
         conn, addr = main_socket.accept()
         name = conn.recv_bytes().decode()
         if name in clients:
-            conn.disconnect()
+            conn.send_bytes("Username already taken".encode())
             continue
+        conn.send_bytes(OK.encode())
         clients[name] = Client(name, conn, addr, True)
         print(f"[NEW CONNECTION] {name} connected to Main Server")
 

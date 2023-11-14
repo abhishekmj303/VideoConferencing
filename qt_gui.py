@@ -1,10 +1,10 @@
 import cv2
 import pyaudio
-from PyQt6.QtCore import Qt, QThread, QTimer, QSize
+from PyQt6.QtCore import Qt, QThread, QTimer, QSize, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QDockWidget \
-    , QLabel, QWidget, QListWidget, QListWidgetItem \
-    , QComboBox, QTextEdit, QLineEdit, QPushButton, QFileDialog
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QDockWidget \
+    , QLabel, QWidget, QListWidget, QListWidgetItem, QMessageBox \
+    , QComboBox, QTextEdit, QLineEdit, QPushButton, QFileDialog, QDialog
 
 import time
 
@@ -190,6 +190,37 @@ class ChatWidget(QWidget):
         self.central_widget.append(f"You -> {client_name}: {file_path}")
 
 
+class LoginDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+    
+    def init_ui(self):
+        self.setWindowTitle("Login")
+
+        self.layout = QGridLayout()
+        self.setLayout(self.layout)
+
+        self.name_label = QLabel("Username", self)
+        self.layout.addWidget(self.name_label, 0, 0)
+
+        self.name_edit = QLineEdit(self)
+        self.layout.addWidget(self.name_edit, 0, 1)
+
+        self.button = QPushButton("Login", self)
+        self.layout.addWidget(self.button, 1, 1)
+
+        self.button.clicked.connect(self.login)
+    
+    def get_name(self):
+        return self.name_edit.text()
+    
+    def login(self):
+        self.accept()
+    
+    def close(self):
+        self.reject()
+
 class MainWindow(QMainWindow):
     def __init__(self, client, server_conn):
         super().__init__()
@@ -199,9 +230,11 @@ class MainWindow(QMainWindow):
 
         self.server_conn.add_client_signal.connect(self.add_client)
         self.server_conn.remove_client_signal.connect(self.remove_client)
-        self.server_conn.start()
-        self.init_ui()
-        # self.add_client(self.client)
+        self.login_dialog = LoginDialog(self)
+        if self.login_dialog.exec():
+            self.server_conn.name = self.login_dialog.get_name()
+            self.server_conn.start()
+            self.init_ui()
 
     def init_ui(self):
         self.setWindowTitle("Video Conferencing")

@@ -6,7 +6,7 @@ import pickle
 from collections import defaultdict
 
 from PyQt6.QtCore import QThreadPool, QRunnable, QThread, pyqtSignal, pyqtSlot
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from qt_gui import MainWindow, Camera, Microphone
 
 from constants import *
@@ -92,16 +92,19 @@ class ServerConnection(QThread):
 
     def init_conn(self):
         self.main_socket.connect((IP, MAIN_PORT))
-        self.video_socket.connect((IP, VIDEO_PORT))
-        self.audio_socket.connect((IP, AUDIO_PORT))
 
-        self.name = input("Client name: ")
         client.name = self.name
-        self.connected = True
-
         name_bytes = self.name.encode()
         self.main_socket.send_bytes(name_bytes)
-        time.sleep(0.1)
+        conn_status = self.main_socket.recv_bytes().decode()
+        if conn_status != OK:
+            QMessageBox.critical(None, "Error", conn_status)
+            self.main_socket.close()
+            os._exit(1)
+
+        self.connected = True
+        self.video_socket.connect((IP, VIDEO_PORT))
+        self.audio_socket.connect((IP, AUDIO_PORT))
         self.video_socket.send_bytes(name_bytes)
         self.audio_socket.send_bytes(name_bytes)
     
@@ -123,7 +126,7 @@ class ServerConnection(QThread):
         self.threadpool.start(self.audio_broadcast_thread)
     
     def disconnect_server(self):
-        self.main_socket.send_bytes(pickle.dumps(Message(self.name, DISCONNECT)))
+        self.send_msg(self.main_socket, Message(self.name, DISCONNECT))
         self.main_socket.disconnect()
         self.video_socket.disconnect()
         self.audio_socket.disconnect()
