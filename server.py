@@ -30,7 +30,12 @@ class Client:
             conn = self.audio_conn
         else:
             conn = self.main_conn
-        conn.send_bytes(pickle.dumps(msg))
+        if conn:
+            try:
+                conn.send_bytes(pickle.dumps(msg))
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                print(f"[{self.name}] [ERROR] BrokenPipeError or ConnectionResetError or OSError")
+                disconnect_client(self)
 
 
 def broadcast_msg(from_name: str, request: str, data_type: str = None, data: any = None):
@@ -107,6 +112,7 @@ def media_server(media: str):
 def disconnect_client(client: Client):
     global clients
 
+    print(f"[DISCONNECT] {client.name} disconnected from Main Server")
     broadcast_msg(client.name, RM)
 
     client.connected = False

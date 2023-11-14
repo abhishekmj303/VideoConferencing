@@ -45,7 +45,11 @@ def recvall(self, n):
     # Helper function to recv n bytes or return None if EOF is hit
     data = bytearray()
     while len(data) < n:
-        packet = self.recv(n - len(data))
+        try:
+            packet = self.recv(n - len(data))
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            print(f"[ERROR] Connection not present")
+            return b''
         if not packet:
             return b''
         data.extend(packet)
@@ -53,7 +57,10 @@ def recvall(self, n):
 
 def disconnect(self):
     msg = Message(SERVER, DISCONNECT)
-    self.send_bytes(pickle.dumps(msg))
+    try:
+        self.send_bytes(pickle.dumps(msg))
+    except (BrokenPipeError, ConnectionResetError, OSError):
+        print(f"[ERROR] Connection not present")
     self.close()
 
 socket.socket.send_bytes = send_bytes

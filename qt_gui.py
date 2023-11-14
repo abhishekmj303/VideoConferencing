@@ -20,7 +20,9 @@ frame_size = {
 }
 FRAME_WIDTH = frame_size[CAMERA_RES][0]
 FRAME_HEIGHT = frame_size[CAMERA_RES][1]
+NOCAM_FRAME = cv2.imread("nocam.jpeg")
 
+ENABLE_AUDIO = False
 pa = pyaudio.PyAudio()
 
 
@@ -103,12 +105,13 @@ class VideoWidget(QWidget):
     
     def update_video(self):
         frame = self.client.get_video()
-        if frame is not None:
-            # print(frame.shape)
-            h, w, ch = frame.shape
-            bytes_per_line = ch * w
-            q_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-            self.video_viewer.setPixmap(QPixmap.fromImage(q_img))
+        if frame is None:
+            frame = NOCAM_FRAME
+        # print(frame.shape)
+        h, w, ch = frame.shape
+        bytes_per_line = ch * w
+        q_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+        self.video_viewer.setPixmap(QPixmap.fromImage(q_img))
 
 
 class VideoListWidget(QListWidget):
@@ -135,7 +138,7 @@ class VideoListWidget(QListWidget):
         self.all_items[client.name] = item
     
     def remove_client(self, name: str):
-        self.removeItemWidget(self.all_items[name])
+        self.takeItem(self.row(self.all_items[name]))
         del self.all_items[name]
 
 
@@ -150,7 +153,7 @@ class ChatWidget(QWidget):
         self.setLayout(self.layout)
 
         self.clients_combo_box = QComboBox(self)
-        self.clients_combo_box.addItems(["Client 1", "Client 2", "Client 3"])
+        # self.clients_combo_box.addItems(["Client 1", "Client 2", "Client 3"])
         self.layout.addWidget(self.clients_combo_box)
 
         self.central_widget = QTextEdit(self)
@@ -172,7 +175,7 @@ class ChatWidget(QWidget):
         self.send_button.clicked.connect(self.send_text)
     
     def select_file(self):
-        file_path = QFileDialog.getOpenFileName(self, "Select File")[0]
+        file_path = QFileDialog.getOpenFileName(None, "Select File", options= QFileDialog.Option.DontUseNativeDialog)[0]
         self.send_file(file_path)
 
     def send_text(self):
@@ -211,19 +214,38 @@ class MainWindow(QMainWindow):
         self.chat_widget = ChatWidget()
         self.sidebar.setWidget(self.chat_widget)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.sidebar)
+
+        # menus for camera and microphone toggle
+        self.camera_menu = self.menuBar().addMenu("Camera")
+        self.microphone_menu = self.menuBar().addMenu("Microphone")
+        self.camera_menu.addAction("Disable Camera", self.toggle_camera)
+        self.microphone_menu.addAction("Disable Microphone", self.toggle_microphone)
     
     def add_client(self, client):
         self.video_list_widget.add_client(client)
-        # self.video_list_widget.add_client(client)
-
-        self.audio_threads[client.name] = AudioThread(client)
-        self.audio_threads[client.name].start()
+        if ENABLE_AUDIO:
+            self.audio_threads[client.name] = AudioThread(client)
+            self.audio_threads[client.name].start()
     
     def remove_client(self, name: str):
         self.video_list_widget.remove_client(name)
-        self.audio_threads[name].terminate()
-        del self.audio_threads[name]
+        if ENABLE_AUDIO:
+            self.audio_threads[name].terminate()
+            del self.audio_threads[name]
 
     def add_msg(self, name: str, msg: str):
         self.chat_widget.central_widget.append(f"{name} -> {self.client.name}: {msg}")
     
+    def toggle_camera(self):
+        if self.client.camera_enabled:
+            self.camera_menu.actions()[0].setText("Enable Camera")
+        else:
+            self.camera_menu.actions()[0].setText("Disable Camera")
+        self.client.camera_enabled = not self.client.camera_enabled
+
+    def toggle_microphone(self):
+        if self.client.microphone_enabled:
+            self.microphone_menu.actions()[0].setText("Enable Microphone")
+        else:
+            self.microphone_menu.actions()[0].setText("Disable Microphone")
+        self.client.microphone_enabled = not self.client.microphone_enabled

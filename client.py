@@ -1,3 +1,5 @@
+import os
+import time
 import sys
 import socket
 import pickle
@@ -27,14 +29,23 @@ class Client:
         else:
             self.camera = None
             self.microphone = None
+        
+        self.camera_enabled = True
+        self.microphone_enabled = True
 
     def get_video(self):
+        if not self.camera_enabled:
+            return None
+
         if self.camera is not None:
             return self.camera.get_frame()
 
         return self.video_frame
     
     def get_audio(self):
+        if not self.microphone_enabled:
+            return None
+
         if self.microphone is not None:
             return self.microphone.get_data()
 
@@ -90,6 +101,7 @@ class ServerConnection(QThread):
 
         name_bytes = self.name.encode()
         self.main_socket.send_bytes(name_bytes)
+        time.sleep(0.1)
         self.video_socket.send_bytes(name_bytes)
         self.audio_socket.send_bytes(name_bytes)
     
@@ -111,13 +123,18 @@ class ServerConnection(QThread):
         self.threadpool.start(self.audio_broadcast_thread)
     
     def disconnect_server(self):
+        self.main_socket.send_bytes(pickle.dumps(Message(self.name, DISCONNECT)))
         self.main_socket.disconnect()
         self.video_socket.disconnect()
         self.audio_socket.disconnect()
     
     def send_msg(self, conn: socket.socket, msg: Message):
         print("Sending..", msg)
-        conn.send_bytes(pickle.dumps(msg))
+        try:
+            conn.send_bytes(pickle.dumps(msg))
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            print(f"[ERROR] Connection not present")
+            self.connected = False
     
     def media_broadcast_loop(self, conn: socket.socket, media: str):
         while self.connected:
@@ -126,7 +143,7 @@ class ServerConnection(QThread):
             elif media == AUDIO:
                 data = client.get_audio()
             else:
-                print("Invalid media type")
+                print(f"[ERROR] Invalid media type")
                 break
             msg = Message(self.name, POST, media, data)
             self.send_msg(conn, msg)
@@ -189,4 +206,6 @@ if __name__ == "__main__":
     window = MainWindow(client, server_conn)
     window.show()
 
-    sys.exit(app.exec())
+    status_code = app.exec()
+    server_conn.disconnect_server()
+    os._exit(status_code)
