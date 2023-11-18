@@ -4,7 +4,8 @@ from PyQt6.QtCore import Qt, QThread, QTimer, QSize, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QDockWidget \
     , QLabel, QWidget, QListWidget, QListWidgetItem, QMessageBox \
-    , QComboBox, QTextEdit, QLineEdit, QPushButton, QFileDialog, QDialog
+    , QComboBox, QTextEdit, QLineEdit, QPushButton, QFileDialog \
+    , QDialog, QMenu, QWidgetAction, QCheckBox
 
 import time
 
@@ -92,7 +93,10 @@ class VideoWidget(QWidget):
     def init_ui(self):
         # self.resize(FRAME_WIDTH, FRAME_HEIGHT)
         self.video_viewer = QLabel()
-        self.name_label = QLabel(self.client.name)
+        if self.client.current_device:
+            self.name_label = QLabel(f"You - {self.client.name}")
+        else:
+            self.name_label = QLabel(self.client.name)
         self.video_viewer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.layout = QVBoxLayout()
@@ -139,7 +143,7 @@ class VideoListWidget(QListWidget):
     
     def remove_client(self, name: str):
         self.takeItem(self.row(self.all_items[name]))
-        del self.all_items[name]
+        self.all_items.pop(name)
 
 
 class ChatWidget(QWidget):
@@ -152,9 +156,17 @@ class ChatWidget(QWidget):
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
 
-        self.clients_combo_box = QComboBox(self)
-        # self.clients_combo_box.addItems(["Client 1", "Client 2", "Client 3"])
-        self.layout.addWidget(self.clients_combo_box)
+        self.clients_menu = QMenu("Clients", self)
+        self.clients_menu.aboutToShow.connect(self.resize_clients_menu)
+        self.clients_checkboxes = {}
+        self.clients_menu_actions = {}
+
+        self.select_all_checkbox, _ = self.add_client("") # Select All Checkbox
+        self.clients_menu.addSeparator()
+
+        self.clients_button = QPushButton("Clients", self)
+        self.clients_button.setMenu(self.clients_menu)
+        self.layout.addWidget(self.clients_button)
 
         self.central_widget = QTextEdit(self)
         self.central_widget.setReadOnly(True)
@@ -174,6 +186,53 @@ class ChatWidget(QWidget):
         self.bottom_layout.addWidget(self.send_button)
         self.send_button.clicked.connect(self.send_text)
     
+    def add_client(self, name: str):
+        checkbox = QCheckBox(name, self)
+        checkbox.setChecked(True)
+        action_widget = QWidgetAction(self)
+        action_widget.setDefaultWidget(checkbox)
+        self.clients_menu.addAction(action_widget)
+
+        if name == "": # Select All Checkbox
+            checkbox.setText("Select All")
+            checkbox.stateChanged.connect(
+                lambda state: self.on_checkbox_click(state, is_select_all=True)
+            )
+            return checkbox, action_widget
+        
+        checkbox.stateChanged.connect(
+            lambda state: self.on_checkbox_click(state)
+        )
+        self.clients_checkboxes[name] = checkbox
+        self.clients_menu_actions[name] = action_widget
+    
+    def remove_client(self, name: str):
+        self.clients_menu.removeAction(self.clients_menu_actions[name])
+        self.clients_menu_actions.pop(name)
+        self.clients_checkboxes.pop(name)
+
+    def resize_clients_menu(self):
+        self.clients_menu.setMinimumWidth(self.clients_button.width())
+    
+    def on_checkbox_click(self, is_checked: bool, is_select_all: bool = False):
+        if is_select_all:
+            for client_checkbox in self.clients_checkboxes.values():
+                client_checkbox.blockSignals(True)
+                client_checkbox.setChecked(is_checked)
+                client_checkbox.blockSignals(False)
+        else:
+            if not is_checked:
+                self.select_all_checkbox.blockSignals(True)
+                self.select_all_checkbox.setChecked(False)
+                self.select_all_checkbox.blockSignals(False)
+    
+    def selected_clients(self):
+        selected = []
+        for c in self.clients_checkboxes:
+            if self.clients_checkboxes[c].isChecked():
+                selected.append(c)
+        return selected
+
     def select_file(self):
         file_path = QFileDialog.getOpenFileName(None, "Select File", options= QFileDialog.Option.DontUseNativeDialog)[0]
         self.send_file(file_path)
@@ -216,6 +275,12 @@ class LoginDialog(QDialog):
         return self.name_edit.text()
     
     def login(self):
+        if self.get_name() == "":
+            QMessageBox.critical(None, "Error", "Username cannot be empty")
+            return
+        if " " in self.get_name():
+            QMessageBox.critical(None, "Error", "Username cannot contain spaces")
+            return
         self.accept()
     
     def close(self):
@@ -235,6 +300,8 @@ class MainWindow(QMainWindow):
             self.server_conn.name = self.login_dialog.get_name()
             self.server_conn.start()
             self.init_ui()
+        else:
+            exit(0)
 
     def init_ui(self):
         self.setWindowTitle("Video Conferencing")
@@ -259,12 +326,15 @@ class MainWindow(QMainWindow):
         if ENABLE_AUDIO:
             self.audio_threads[client.name] = AudioThread(client)
             self.audio_threads[client.name].start()
+        if not client.current_device:
+            self.chat_widget.add_client(client.name)
     
     def remove_client(self, name: str):
         self.video_list_widget.remove_client(name)
         if ENABLE_AUDIO:
             self.audio_threads[name].terminate()
-            del self.audio_threads[name]
+            self.audio_threads.pop(name)
+        self.chat_widget.remove_client(name)
 
     def add_msg(self, name: str, msg: str):
         self.chat_widget.central_widget.append(f"{name} -> {self.client.name}: {msg}")
