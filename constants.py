@@ -74,7 +74,7 @@ class Message:
     request: str
     data_type: str = None
     data: any = None
-    to_names: set[str] = None
+    to_names: tuple[str] = None
 
     def __str__(self):
         if self.data_type in [VIDEO, AUDIO]:

@@ -128,15 +128,15 @@ class ServerConnection(QThread):
             print(f"[ERROR] Connection not present")
             self.connected = False
     
-    def send_file(self, filepath: str):
+    def send_file(self, filepath: str, to_names: tuple[str]):
         filename = os.path.basename(filepath)
         with open(filepath, 'rb') as f:
             data = f.read(SIZE)
             while data:
-                msg = Message(self.name, POST, FILE, data)
+                msg = Message(self.name, POST, FILE, data, to_names)
                 self.send_msg(self.main_socket, msg)
                 data = f.read(SIZE)
-            msg = Message(self.name, POST, FILE, None)
+            msg = Message(self.name, POST, FILE, None, to_names)
             self.send_msg(self.main_socket, msg)
         self.add_msg_signal.emit(self.name, f"File {filename} sent.")
     
@@ -188,8 +188,14 @@ class ServerConnection(QThread):
                 self.add_msg_signal.emit(client_name, msg.data)
             elif msg.data_type == FILE:
                 if type(msg.data) == str:
+                    if os.path.exists(msg.data): # create copy
+                        filename, ext = os.path.splitext(msg.data)
+                        i = 1
+                        while os.path.exists(f"{filename}({i}){ext}"):
+                            i += 1
+                        msg.data = f"{filename}({i}){ext}"
                     self.recieving_filename = msg.data
-                    with open(msg.data, 'wb') as f:
+                    with open(self.recieving_filename, 'wb') as f:
                         pass
                 elif msg.data is None:
                     self.add_msg_signal.emit(client_name, f"File {self.recieving_filename} recieved.")

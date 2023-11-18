@@ -375,7 +375,7 @@ class MainWindow(QMainWindow):
         self.server_conn.send_msg(self.server_conn.main_socket, msg)
         
         if data_type == FILE:
-            send_file_thread = Worker(self.server_conn.send_file, filepath)
+            send_file_thread = Worker(self.server_conn.send_file, filepath, selected)
             self.server_conn.threadpool.start(send_file_thread)
             msg_text = f"Sending {msg_text}..."
 

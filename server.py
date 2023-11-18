@@ -46,7 +46,7 @@ def broadcast_msg(from_name: str, request: str, data_type: str = None, data: any
         client.send_msg(from_name, request, data_type, data)
 
 
-def multicast_msg(from_name: str, request: str, to_names: set[str], data_type: str = None, data: any = None):
+def multicast_msg(from_name: str, request: str, to_names: tuple[str], data_type: str = None, data: any = None):
     if not to_names:
         broadcast_msg(from_name, request, data_type, data)
         return
