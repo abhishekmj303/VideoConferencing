@@ -7,7 +7,7 @@ from collections import defaultdict
 
 from PyQt6.QtCore import QThreadPool, QRunnable, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from qt_gui import MainWindow, Camera, Microphone
+from qt_gui import MainWindow, Camera, Microphone, Worker
 
 from constants import *
 
@@ -52,19 +52,6 @@ class Client:
         return self.audio_data
 
 
-class Worker(QRunnable):
-    def __init__(self, fn, *args, **kwargs):
-        super(Worker, self).__init__()
-        # Store constructor arguments (re-used for processing)
-        self.fn = fn
-        self.args = args
-        self.kwargs = kwargs
-
-    @pyqtSlot()
-    def run(self):
-        self.fn(*self.args, **self.kwargs)
-
-
 class ServerConnection(QThread):
     add_client_signal = pyqtSignal(Client)
     remove_client_signal = pyqtSignal(str)
@@ -79,6 +66,7 @@ class ServerConnection(QThread):
         self.audio_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         self.connected = False
+        self.recieving_filename = None
 
     def run(self):
         self.init_conn() # Connect to all servers and send name
@@ -140,6 +128,18 @@ class ServerConnection(QThread):
             print(f"[ERROR] Connection not present")
             self.connected = False
     
+    def send_file(self, filepath: str):
+        filename = os.path.basename(filepath)
+        with open(filepath, 'rb') as f:
+            data = f.read(SIZE)
+            while data:
+                msg = Message(self.name, POST, FILE, data)
+                self.send_msg(self.main_socket, msg)
+                data = f.read(SIZE)
+            msg = Message(self.name, POST, FILE, None)
+            self.send_msg(self.main_socket, msg)
+        self.add_msg_signal.emit(self.name, f"File {filename} sent.")
+    
     def media_broadcast_loop(self, conn: socket.socket, media: str):
         while self.connected:
             if media == VIDEO:
@@ -173,7 +173,7 @@ class ServerConnection(QThread):
                 print(f"[{self.name}] [{media}] [ERROR] {e}")
                 continue
 
-    def handle_msg(self, msg):
+    def handle_msg(self, msg: Message):
         global all_clients
         client_name = msg.from_name
         if msg.request == POST:
@@ -186,6 +186,17 @@ class ServerConnection(QThread):
                 all_clients[client_name].audio_data = msg.data
             elif msg.data_type == TEXT:
                 self.add_msg_signal.emit(client_name, msg.data)
+            elif msg.data_type == FILE:
+                if type(msg.data) == str:
+                    self.recieving_filename = msg.data
+                    with open(msg.data, 'wb') as f:
+                        pass
+                elif msg.data is None:
+                    self.add_msg_signal.emit(client_name, f"File {self.recieving_filename} recieved.")
+                    self.recieving_filename = None
+                else:
+                    with open(self.recieving_filename, 'ab') as f:
+                        f.write(msg.data)
             else:
                 print(f"[{self.name}] [ERROR] Invalid data type")
         elif msg.request == ADD:

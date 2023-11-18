@@ -1,13 +1,12 @@
+import os
 import cv2
 import pyaudio
-from PyQt6.QtCore import Qt, QThread, QTimer, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, QSize, QRunnable, pyqtSlot
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QDockWidget \
     , QLabel, QWidget, QListWidget, QListWidgetItem, QMessageBox \
     , QComboBox, QTextEdit, QLineEdit, QPushButton, QFileDialog \
     , QDialog, QMenu, QWidgetAction, QCheckBox
-
-import time
 
 from constants import *
 
@@ -27,6 +26,19 @@ NOCAM_FRAME = cv2.imread("nocam.jpeg")
 
 ENABLE_AUDIO = False
 pa = pyaudio.PyAudio()
+
+
+class Worker(QRunnable):
+    def __init__(self, fn, *args, **kwargs):
+        super(Worker, self).__init__()
+        # Store constructor arguments (re-used for processing)
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+
+    @pyqtSlot()
+    def run(self):
+        self.fn(*self.args, **self.kwargs)
 
 
 class Microphone:
@@ -174,19 +186,17 @@ class ChatWidget(QWidget):
         self.clients_button.setMenu(self.clients_menu)
         self.layout.addWidget(self.clients_button)
 
+        self.file_button = QPushButton("Send File", self)
+        self.layout.addWidget(self.file_button)
+
         self.bottom_layout = QHBoxLayout()
         self.layout.addLayout(self.bottom_layout)
 
         self.line_edit = QLineEdit(self)
         self.bottom_layout.addWidget(self.line_edit)
 
-        self.file_button = QPushButton("Select File", self)
-        self.bottom_layout.addWidget(self.file_button)
-        # self.file_button.clicked.connect(self.select_file)
-
         self.send_button = QPushButton("Send", self)
         self.bottom_layout.addWidget(self.send_button)
-        # self.send_button.clicked.connect(self.send_text)
     
     def add_client(self, name: str):
         checkbox = QCheckBox(name, self)
@@ -239,7 +249,7 @@ class ChatWidget(QWidget):
         file_path = QFileDialog.getOpenFileName(None, "Select File", options= QFileDialog.Option.DontUseNativeDialog)[0]
         return file_path
 
-    def get_msg_text(self):
+    def get_text(self):
         text = self.line_edit.text()
         self.line_edit.clear()
         return text
@@ -275,10 +285,10 @@ class LoginDialog(QDialog):
     
     def login(self):
         if self.get_name() == "":
-            QMessageBox.critical(None, "Error", "Username cannot be empty")
+            QMessageBox.critical(self, "Error", "Username cannot be empty")
             return
         if " " in self.get_name():
-            QMessageBox.critical(None, "Error", "Username cannot contain spaces")
+            QMessageBox.critical(self, "Error", "Username cannot contain spaces")
             return
         self.accept()
     
@@ -315,7 +325,9 @@ class MainWindow(QMainWindow):
         self.chat_widget = ChatWidget()
         self.sidebar.setWidget(self.chat_widget)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.sidebar)
-        self.chat_widget.send_button.clicked.connect(self.send_msg)
+        self.chat_widget.send_button.clicked.connect(lambda: self.send_msg(TEXT))
+        self.chat_widget.line_edit.returnPressed.connect(lambda: self.send_msg(TEXT))
+        self.chat_widget.file_button.clicked.connect(lambda: self.send_msg(FILE))
 
         # menus for camera and microphone toggle
         self.camera_menu = self.menuBar().addMenu("Camera")
@@ -338,17 +350,35 @@ class MainWindow(QMainWindow):
             self.audio_threads.pop(name)
         self.chat_widget.remove_client(name)
 
-    def send_msg(self):
+    def send_msg(self, data_type: str = TEXT):
         selected = self.chat_widget.selected_clients()
         if len(selected) == 0:
-            QMessageBox.critical(None, "Error", "Select at least one client")
+            QMessageBox.critical(self, "Error", "Select at least one client")
             return
-        msg_text = self.chat_widget.get_msg_text()
+        
+        if data_type == TEXT:
+            msg_text = self.chat_widget.get_text()
+        elif data_type == FILE:
+            filepath = self.chat_widget.get_file()
+            if not filepath:
+                return
+            msg_text = os.path.basename(filepath)
+        else:
+            print(f"{data_type} data_type not supported")
+            return
+        
         if msg_text == "":
-            QMessageBox.critical(None, "Error", "Message cannot be empty")
+            QMessageBox.critical(self, "Error", f"{data_type} cannot be empty")
             return
-        msg = Message(self.client.name, POST, TEXT, data=msg_text, to_names=selected)
+        
+        msg = Message(self.client.name, POST, data_type, data=msg_text, to_names=selected)
         self.server_conn.send_msg(self.server_conn.main_socket, msg)
+        
+        if data_type == FILE:
+            send_file_thread = Worker(self.server_conn.send_file, filepath)
+            self.server_conn.threadpool.start(send_file_thread)
+            msg_text = f"Sending {msg_text}..."
+
         self.chat_widget.add_msg("You", ", ".join(selected), msg_text)
     
     def add_msg(self, from_name: str, msg: str):
