@@ -68,6 +68,7 @@ class Worker(QRunnable):
 class ServerConnection(QThread):
     add_client_signal = pyqtSignal(Client)
     remove_client_signal = pyqtSignal(str)
+    add_msg_signal = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -132,7 +133,7 @@ class ServerConnection(QThread):
         self.audio_socket.disconnect()
     
     def send_msg(self, conn: socket.socket, msg: Message):
-        print("Sending..", msg)
+        # print("Sending..", msg)
         try:
             conn.send_bytes(pickle.dumps(msg))
         except (BrokenPipeError, ConnectionResetError, OSError):
@@ -183,6 +184,8 @@ class ServerConnection(QThread):
                 all_clients[client_name].video_frame = msg.data
             elif msg.data_type == AUDIO:
                 all_clients[client_name].audio_data = msg.data
+            elif msg.data_type == TEXT:
+                self.add_msg_signal.emit(client_name, msg.data)
             else:
                 print(f"[{self.name}] [ERROR] Invalid data type")
         elif msg.request == ADD:

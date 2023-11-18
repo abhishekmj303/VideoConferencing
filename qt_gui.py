@@ -9,6 +9,8 @@ from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, 
 
 import time
 
+from constants import *
+
 SAMPLE_RATE = 48000
 BLOCK_SIZE = 256
 CAMERA_RES = '240p'
@@ -156,6 +158,10 @@ class ChatWidget(QWidget):
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
 
+        self.central_widget = QTextEdit(self)
+        self.central_widget.setReadOnly(True)
+        self.layout.addWidget(self.central_widget)
+
         self.clients_menu = QMenu("Clients", self)
         self.clients_menu.aboutToShow.connect(self.resize_clients_menu)
         self.clients_checkboxes = {}
@@ -168,10 +174,6 @@ class ChatWidget(QWidget):
         self.clients_button.setMenu(self.clients_menu)
         self.layout.addWidget(self.clients_button)
 
-        self.central_widget = QTextEdit(self)
-        self.central_widget.setReadOnly(True)
-        self.layout.addWidget(self.central_widget)
-
         self.bottom_layout = QHBoxLayout()
         self.layout.addLayout(self.bottom_layout)
 
@@ -180,11 +182,11 @@ class ChatWidget(QWidget):
 
         self.file_button = QPushButton("Select File", self)
         self.bottom_layout.addWidget(self.file_button)
-        self.file_button.clicked.connect(self.select_file)
+        # self.file_button.clicked.connect(self.select_file)
 
         self.send_button = QPushButton("Send", self)
         self.bottom_layout.addWidget(self.send_button)
-        self.send_button.clicked.connect(self.send_text)
+        # self.send_button.clicked.connect(self.send_text)
     
     def add_client(self, name: str):
         checkbox = QCheckBox(name, self)
@@ -228,25 +230,22 @@ class ChatWidget(QWidget):
     
     def selected_clients(self):
         selected = []
-        for c in self.clients_checkboxes:
-            if self.clients_checkboxes[c].isChecked():
-                selected.append(c)
-        return selected
+        for name, checkbox in self.clients_checkboxes.items():
+            if checkbox.isChecked():
+                selected.append(name)
+        return tuple(selected)
 
-    def select_file(self):
+    def get_file(self):
         file_path = QFileDialog.getOpenFileName(None, "Select File", options= QFileDialog.Option.DontUseNativeDialog)[0]
-        self.send_file(file_path)
+        return file_path
 
-    def send_text(self):
+    def get_msg_text(self):
         text = self.line_edit.text()
-        client_name = self.clients_combo_box.currentText()
-        self.central_widget.append(f"You -> {client_name}: {text}")
         self.line_edit.clear()
+        return text
     
-    def send_file(self, file_path):
-        file_name = file_path.split("/")[-1]
-        client_name = self.clients_combo_box.currentText()
-        self.central_widget.append(f"You -> {client_name}: {file_path}")
+    def add_msg(self, from_name: str, to_name: str, msg: str):
+        self.central_widget.append(f"[{from_name} 🠖 {to_name}] {msg}")
 
 
 class LoginDialog(QDialog):
@@ -295,13 +294,15 @@ class MainWindow(QMainWindow):
 
         self.server_conn.add_client_signal.connect(self.add_client)
         self.server_conn.remove_client_signal.connect(self.remove_client)
+        self.server_conn.add_msg_signal.connect(self.add_msg)
+
         self.login_dialog = LoginDialog(self)
-        if self.login_dialog.exec():
-            self.server_conn.name = self.login_dialog.get_name()
-            self.server_conn.start()
-            self.init_ui()
-        else:
-            exit(0)
+        if not self.login_dialog.exec():
+            exit()
+        
+        self.server_conn.name = self.login_dialog.get_name()
+        self.server_conn.start()
+        self.init_ui()
 
     def init_ui(self):
         self.setWindowTitle("Video Conferencing")
@@ -314,6 +315,7 @@ class MainWindow(QMainWindow):
         self.chat_widget = ChatWidget()
         self.sidebar.setWidget(self.chat_widget)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.sidebar)
+        self.chat_widget.send_button.clicked.connect(self.send_msg)
 
         # menus for camera and microphone toggle
         self.camera_menu = self.menuBar().addMenu("Camera")
@@ -336,8 +338,21 @@ class MainWindow(QMainWindow):
             self.audio_threads.pop(name)
         self.chat_widget.remove_client(name)
 
-    def add_msg(self, name: str, msg: str):
-        self.chat_widget.central_widget.append(f"{name} -> {self.client.name}: {msg}")
+    def send_msg(self):
+        selected = self.chat_widget.selected_clients()
+        if len(selected) == 0:
+            QMessageBox.critical(None, "Error", "Select at least one client")
+            return
+        msg_text = self.chat_widget.get_msg_text()
+        if msg_text == "":
+            QMessageBox.critical(None, "Error", "Message cannot be empty")
+            return
+        msg = Message(self.client.name, POST, TEXT, data=msg_text, to_names=selected)
+        self.server_conn.send_msg(self.server_conn.main_socket, msg)
+        self.chat_widget.add_msg("You", ", ".join(selected), msg_text)
+    
+    def add_msg(self, from_name: str, msg: str):
+        self.chat_widget.add_msg(from_name, "You", msg)
     
     def toggle_camera(self):
         if self.client.camera_enabled:
