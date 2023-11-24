@@ -35,19 +35,21 @@ class Client:
 
     def get_video(self):
         if not self.camera_enabled:
+            self.video_frame = None
             return None
 
         if self.camera is not None:
-            return self.camera.get_frame()
+            self.video_frame = self.camera.get_frame()
 
         return self.video_frame
     
     def get_audio(self):
         if not self.microphone_enabled:
+            self.audio_data = None
             return None
 
         if self.microphone is not None:
-            return self.microphone.get_data()
+            self.audio_data = self.microphone.get_data()
 
         return self.audio_data
 
@@ -178,7 +180,7 @@ class ServerConnection(QThread):
         client_name = msg.from_name
         if msg.request == POST:
             if client_name not in all_clients:
-                print(f"[{self.name}] [ERROR] Invalid client name")
+                print(f"[{self.name}] [ERROR] Invalid client name {client_name}: {msg}")
                 return
             if msg.data_type == VIDEO:
                 all_clients[client_name].video_frame = msg.data
@@ -204,16 +206,16 @@ class ServerConnection(QThread):
                     with open(self.recieving_filename, 'ab') as f:
                         f.write(msg.data)
             else:
-                print(f"[{self.name}] [ERROR] Invalid data type")
+                print(f"[{self.name}] [ERROR] Invalid data type {msg.data_type}")
         elif msg.request == ADD:
             if client_name in all_clients:
-                print(f"[{self.name}] [ERROR] Client already exists")
+                print(f"[{self.name}] [ERROR] Client already exists with name {client_name}")
                 return
             all_clients[client_name] = Client(client_name)
             self.add_client_signal.emit(all_clients[client_name])
         elif msg.request == RM:
             if client_name not in all_clients:
-                print(f"[{self.name}] [ERROR] Invalid client name")
+                print(f"[{self.name}] [ERROR] Invalid client name {client_name}")
                 return
             self.remove_client_signal.emit(client_name)
             all_clients.pop(client_name)

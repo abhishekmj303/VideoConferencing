@@ -10,7 +10,6 @@ from constants import *
 
 IP = ''
 
-registered = {} # all registered clients to the server
 clients = {} # list of clients connected to the server
 
 @dataclass
@@ -35,7 +34,7 @@ class Client:
                 conn.send_bytes(pickle.dumps(msg))
             except (BrokenPipeError, ConnectionResetError, OSError):
                 print(f"[{self.name}] [ERROR] BrokenPipeError or ConnectionResetError or OSError")
-                disconnect_client(self)
+                self.connected = False
 
 
 def broadcast_msg(from_name: str, request: str, data_type: str = None, data: any = None):
@@ -80,6 +79,7 @@ def handle_media_conn(name: str, media: str):
         client.video_conn = None
     elif media == AUDIO:
         client.audio_conn = None
+    print(f"[DISCONNECT] {name} disconnected from {media} Server")
 
 
 def media_server(media: str):
@@ -114,15 +114,20 @@ def disconnect_client(client: Client):
 
     print(f"[DISCONNECT] {client.name} disconnected from Main Server")
     broadcast_msg(client.name, RM)
-
     client.connected = False
+
     client.main_conn.disconnect()
     if client.video_conn:
         client.video_conn.disconnect()
     if client.audio_conn:
         client.audio_conn.disconnect()
     
-    clients.pop(client.name)
+    try:
+        clients.pop(client.name)
+    except KeyError:
+        print(f"[ERROR] {client.name} not in clients")
+        print(clients)
+        pass
 
 
 def handle_main_conn(name: str):

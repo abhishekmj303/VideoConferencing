@@ -10,8 +10,7 @@ from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, 
 
 from constants import *
 
-SAMPLE_RATE = 48000
-BLOCK_SIZE = 256
+# Camera
 CAMERA_RES = '240p'
 frame_size = {
     '240p': [352, 240],
@@ -22,10 +21,24 @@ frame_size = {
 }
 FRAME_WIDTH = frame_size[CAMERA_RES][0]
 FRAME_HEIGHT = frame_size[CAMERA_RES][1]
-ENCODE_PARAM = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
-NOCAM_FRAME = cv2.imread("nocam.jpeg")
 
-ENABLE_AUDIO = False
+# Image Encoding
+ENABLE_ENCODE = True
+ENCODE_PARAM = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+
+# frame for no camera
+NOCAM_FRAME = cv2.imread("nocam.jpeg")
+# crop center part of the nocam frame
+nocam_h, nocam_w = NOCAM_FRAME.shape[:2]
+x, y = (nocam_w - FRAME_WIDTH)//2, (nocam_h - FRAME_HEIGHT)//2
+NOCAM_FRAME = NOCAM_FRAME[y:y+FRAME_HEIGHT, x:x+FRAME_WIDTH]
+# frame for no microphone
+NOMIC_FRAME = cv2.imread("nomic.jpeg")
+
+# Audio
+ENABLE_AUDIO = True
+SAMPLE_RATE = 48000
+BLOCK_SIZE = 2048
 pa = pyaudio.PyAudio()
 
 
@@ -53,7 +66,7 @@ class Microphone:
         )
 
     def get_data(self):
-        return self.stream.read(BLOCK_SIZE*2)
+        return self.stream.read(BLOCK_SIZE)
 
 
 class AudioThread(QThread):
@@ -67,12 +80,13 @@ class AudioThread(QThread):
             output=True,
             frames_per_buffer=BLOCK_SIZE
         )
+        self.connected = True
 
     def run(self):
         # if this is the current client, then don't play audio
         if self.client.microphone is not None:
             return
-        while True:
+        while self.connected:
             self.update_audio()
 
     def update_audio(self):
@@ -93,9 +107,10 @@ class Camera:
         ret, frame = self.cap.read()
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            resized_frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT), interpolation=cv2.INTER_AREA)
-            _, jpeg = cv2.imencode('.jpg', resized_frame, ENCODE_PARAM)
-            return jpeg
+            frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT), interpolation=cv2.INTER_AREA)
+            if ENABLE_ENCODE:
+                _, frame = cv2.imencode('.jpg', frame, ENCODE_PARAM)
+            return frame
 
 
 class VideoWidget(QWidget):
@@ -129,10 +144,16 @@ class VideoWidget(QWidget):
     def update_video(self):
         frame = self.client.get_video()
         if frame is None:
-            frame = NOCAM_FRAME
-        else:
+            frame = NOCAM_FRAME.copy()
+        elif ENABLE_ENCODE:
             frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
-        # print(frame.shape)
+        
+        if self.client.audio_data is None:
+            # replace bottom center part of the frame with nomic frame
+            nomic_h, nomic_w, _ = NOMIC_FRAME.shape
+            x, y = FRAME_WIDTH//2 - nomic_w//2, FRAME_HEIGHT - 50
+            frame[y:y+nomic_h, x:x+nomic_w] = NOMIC_FRAME.copy()
+
         h, w, ch = frame.shape
         bytes_per_line = ch * w
         q_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
@@ -156,7 +177,10 @@ class VideoListWidget(QListWidget):
 
         item = QListWidgetItem()
         item.setFlags(item.flags() & ~(Qt.ItemFlag.ItemIsSelectable|Qt.ItemFlag.ItemIsEnabled))
-        self.addItem(item)
+        if client.current_device:
+            self.insertItem(0, item)
+        else:
+            self.addItem(item)
         # item.setSizeHint(video_widget.sizeHint())
         item.setSizeHint(QSize(FRAME_WIDTH, FRAME_HEIGHT))
         self.setItemWidget(item, video_widget)
@@ -345,7 +369,7 @@ class MainWindow(QMainWindow):
     def add_client(self, client):
         self.video_list_widget.add_client(client)
         if ENABLE_AUDIO:
-            self.audio_threads[client.name] = AudioThread(client)
+            self.audio_threads[client.name] = AudioThread(client, self)
             self.audio_threads[client.name].start()
         if not client.current_device:
             self.chat_widget.add_client(client.name)
@@ -353,9 +377,13 @@ class MainWindow(QMainWindow):
     def remove_client(self, name: str):
         self.video_list_widget.remove_client(name)
         if ENABLE_AUDIO:
-            self.audio_threads[name].terminate()
+            self.audio_threads[name].connected = False
+            self.audio_threads[name].wait()
             self.audio_threads.pop(name)
+            print(f"Audio Thread for {name} terminated")
+        print(f"removing {name} chat...")
         self.chat_widget.remove_client(name)
+        print(f"{name} removed")
 
     def send_msg(self, data_type: str = TEXT):
         selected = self.chat_widget.selected_clients()
