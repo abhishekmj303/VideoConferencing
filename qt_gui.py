@@ -22,6 +22,7 @@ frame_size = {
 }
 FRAME_WIDTH = frame_size[CAMERA_RES][0]
 FRAME_HEIGHT = frame_size[CAMERA_RES][1]
+ENCODE_PARAM = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
 NOCAM_FRAME = cv2.imread("nocam.jpeg")
 
 ENABLE_AUDIO = False
@@ -83,14 +84,18 @@ class AudioThread(QThread):
 class Camera:
     def __init__(self):
         self.cap = cv2.VideoCapture(2)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+        if not self.cap.isOpened():
+            self.cap = cv2.VideoCapture(0)
+        # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+        # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
 
     def get_frame(self):
         ret, frame = self.cap.read()
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            return cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT), interpolation=cv2.INTER_AREA)
+            resized_frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT), interpolation=cv2.INTER_AREA)
+            _, jpeg = cv2.imencode('.jpg', resized_frame, ENCODE_PARAM)
+            return jpeg
 
 
 class VideoWidget(QWidget):
@@ -125,6 +130,8 @@ class VideoWidget(QWidget):
         frame = self.client.get_video()
         if frame is None:
             frame = NOCAM_FRAME
+        else:
+            frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
         # print(frame.shape)
         h, w, ch = frame.shape
         bytes_per_line = ch * w
