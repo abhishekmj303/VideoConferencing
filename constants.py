@@ -26,6 +26,8 @@ AUDIO = 'Audio'
 TEXT = 'Text'
 FILE = 'File'
 
+MEDIA_SIZE = {VIDEO: 25000, AUDIO: 4500}
+
 
 def send_bytes(self, msg):
     # Prefix each message with a 4-byte length (network byte order)

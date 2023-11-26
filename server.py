@@ -4,37 +4,38 @@ import time
 import os
 import traceback
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from constants import *
 
 IP = ''
 
 clients = {} # list of clients connected to the server
+video_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+audio_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+media_conns = {VIDEO: video_conn, AUDIO: audio_conn}
 
 @dataclass
 class Client:
     name: str
     main_conn: socket.socket
-    addr: str
     connected: bool
-    video_conn: socket.socket = None
-    audio_conn: socket.socket = None
+    media_addrs: dict = field(default_factory=lambda: {VIDEO: None, AUDIO: None})
 
     def send_msg(self, from_name: str, request: str, data_type: str = None, data: any = None):
         msg = Message(from_name, request, data_type, data)
-        if data_type == VIDEO:
-            conn = self.video_conn
-        elif data_type == AUDIO:
-            conn = self.audio_conn
-        else:
-            conn = self.main_conn
-        if conn:
-            try:
-                conn.send_bytes(pickle.dumps(msg))
-            except (BrokenPipeError, ConnectionResetError, OSError):
-                print(f"[{self.name}] [ERROR] BrokenPipeError or ConnectionResetError or OSError")
-                self.connected = False
+        try:
+            if data_type in [VIDEO, AUDIO]:
+                print(f"[{self.name}] {self.media_addrs}")
+                addr = self.media_addrs.get(data_type, None)
+                if addr is None:
+                    return
+                media_conns[data_type].sendto(pickle.dumps(msg), addr)
+            else:
+                self.main_conn.send_bytes(pickle.dumps(msg))
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            print(f"[{self.name}] [ERROR] BrokenPipeError or ConnectionResetError or OSError")
+            self.connected = False
 
 
 def broadcast_msg(from_name: str, request: str, data_type: str = None, data: any = None):
@@ -55,73 +56,36 @@ def multicast_msg(from_name: str, request: str, to_names: tuple[str], data_type:
         clients[name].send_msg(from_name, request, data_type, data)
 
 
-def handle_media_conn(name: str, media: str):
-    client = clients[name]
-    if media == VIDEO:
-        conn = client.video_conn
-    elif media == AUDIO:
-        conn = client.audio_conn
-    
-    while client.connected:
-        msg_bytes = conn.recv_bytes()
-        if not msg_bytes:
-            break
-        try:
-            msg = pickle.loads(msg_bytes)
-        except pickle.UnpicklingError:
-            print(f"[{name}] [{media}] [ERROR] UnpicklingError")
-            continue
-
-        broadcast_msg(name, msg.request, msg.data_type, msg.data)
-    
-    conn.disconnect()
-    if media == VIDEO:
-        client.video_conn = None
-    elif media == AUDIO:
-        client.audio_conn = None
-    print(f"[DISCONNECT] {name} disconnected from {media} Server")
-
-
-def media_server(media: str):
-    if media == VIDEO:
-        PORT = VIDEO_PORT
-    elif media == AUDIO:
-        PORT = AUDIO_PORT
-        
-    media_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    media_socket.bind((IP, PORT))
-    media_socket.listen()
-    print(f"[LISTENING] {media} Server is listening on {IP}:{PORT}")
+def media_server(media: str, port: int):
+    conn = media_conns[media]
+    conn.bind((IP, port))
+    print(f"[LISTENING] {media} Server is listening on {IP}:{port}")
 
     while True:
-        conn, addr = media_socket.accept()
-        name = conn.recv_bytes().decode()
-        if name not in clients:
-            conn.disconnect()
+        msg_bytes, addr = conn.recvfrom(MEDIA_SIZE[media])
+        try:
+            msg: Message = pickle.loads(msg_bytes)
+        except pickle.UnpicklingError:
+            print(f"[{addr}] [{media}] [ERROR] UnpicklingError")
             continue
-        if media == VIDEO:
-            clients[name].video_conn = conn
-        elif media == AUDIO:
-            clients[name].audio_conn = conn
-        print(f"[NEW CONNECTION] {name} connected to {media} Server")
 
-        media_conn_thread = threading.Thread(target=handle_media_conn, args=(name, media))
-        media_conn_thread.start()
+        if msg.request == ADD:
+            client = clients[msg.from_name]
+            client.media_addrs[media] = addr
+            print(f"[{addr}] [{media}] {msg.from_name} added")
+        else:
+            broadcast_msg(msg.from_name, msg.request, msg.data_type, msg.data)
 
 
 def disconnect_client(client: Client):
     global clients
 
     print(f"[DISCONNECT] {client.name} disconnected from Main Server")
-    broadcast_msg(client.name, RM)
+    client.media_addrs.update({VIDEO: None, AUDIO: None})
     client.connected = False
 
+    broadcast_msg(client.name, RM)
     client.main_conn.disconnect()
-    if client.video_conn:
-        client.video_conn.disconnect()
-    if client.audio_conn:
-        client.audio_conn.disconnect()
-    
     try:
         clients.pop(client.name)
     except KeyError:
@@ -165,9 +129,9 @@ def main_server():
     main_socket.listen()
     print(f"[LISTENING] Main Server is listening on {IP}:{MAIN_PORT}")
 
-    video_server_thread = threading.Thread(target=media_server, args=(VIDEO,))
+    video_server_thread = threading.Thread(target=media_server, args=(VIDEO, VIDEO_PORT))
     video_server_thread.start()
-    audio_server_thread = threading.Thread(target=media_server, args=(AUDIO,))
+    audio_server_thread = threading.Thread(target=media_server, args=(AUDIO, AUDIO_PORT))
     audio_server_thread.start()
 
     while True:
@@ -177,7 +141,7 @@ def main_server():
             conn.send_bytes("Username already taken".encode())
             continue
         conn.send_bytes(OK.encode())
-        clients[name] = Client(name, conn, addr, True)
+        clients[name] = Client(name, conn, True)
         print(f"[NEW CONNECTION] {name} connected to Main Server")
 
         main_conn_thread = threading.Thread(target=handle_main_conn, args=(name,))
@@ -188,8 +152,8 @@ if __name__ == "__main__":
     try:
         main_server()
     except KeyboardInterrupt:
-        print(f"[EXITING] Keyboard Interrupt")
         print(traceback.format_exc())
+        print(f"[EXITING] Keyboard Interrupt")
         for client in clients.values():
             disconnect_client(client)
     except Exception as e:

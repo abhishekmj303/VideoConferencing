@@ -12,7 +12,8 @@ from qt_gui import MainWindow, Camera, Microphone, Worker
 from constants import *
 
 IP = socket.gethostbyname(socket.gethostname())
-# ADDR = (IP, MAIN_PORT)
+VIDEO_ADDR = (IP, VIDEO_PORT)
+AUDIO_ADDR = (IP, AUDIO_PORT)
 
 
 class Client:
@@ -64,8 +65,8 @@ class ServerConnection(QThread):
         self.threadpool = QThreadPool()
 
         self.main_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.video_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.audio_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.connected = False
         self.recieving_filename = None
@@ -85,19 +86,18 @@ class ServerConnection(QThread):
         self.main_socket.connect((IP, MAIN_PORT))
 
         client.name = self.name
-        name_bytes = self.name.encode()
-        self.main_socket.send_bytes(name_bytes)
+        self.main_socket.send_bytes(self.name.encode())
         conn_status = self.main_socket.recv_bytes().decode()
         if conn_status != OK:
             QMessageBox.critical(None, "Error", conn_status)
             self.main_socket.close()
-            os._exit(1)
+            window.close()
+            return
+        
+        self.send_msg(self.video_socket, Message(self.name, ADD, VIDEO))
+        self.send_msg(self.audio_socket, Message(self.name, ADD, AUDIO))
 
         self.connected = True
-        self.video_socket.connect((IP, VIDEO_PORT))
-        self.audio_socket.connect((IP, AUDIO_PORT))
-        self.video_socket.send_bytes(name_bytes)
-        self.audio_socket.send_bytes(name_bytes)
     
     def start_conn_threads(self):
         self.main_conn_thread = Worker(self.handle_conn, self.main_socket, TEXT)
@@ -119,13 +119,17 @@ class ServerConnection(QThread):
     def disconnect_server(self):
         self.send_msg(self.main_socket, Message(self.name, DISCONNECT))
         self.main_socket.disconnect()
-        self.video_socket.disconnect()
-        self.audio_socket.disconnect()
     
     def send_msg(self, conn: socket.socket, msg: Message):
-        # print("Sending..", msg)
+        msg_bytes = pickle.dumps(msg)
+        # print("Sending..", len(msg_bytes))
         try:
-            conn.send_bytes(pickle.dumps(msg))
+            if msg.data_type == VIDEO:
+                conn.sendto(msg_bytes, VIDEO_ADDR)
+            elif msg.data_type == AUDIO:
+                conn.sendto(msg_bytes, AUDIO_ADDR)
+            else:
+                conn.send_bytes(msg_bytes)
         except (BrokenPipeError, ConnectionResetError, OSError):
             print(f"[ERROR] Connection not present")
             self.connected = False
@@ -156,7 +160,10 @@ class ServerConnection(QThread):
 
     def handle_conn(self, conn: socket.socket, media: str):
         while self.connected:
-            msg_bytes = conn.recv_bytes()
+            if media in [VIDEO, AUDIO]:
+                msg_bytes, _ = conn.recvfrom(MEDIA_SIZE[media])
+            else:
+                msg_bytes = conn.recv_bytes()
             if not msg_bytes:
                 self.connected = False
                 break
