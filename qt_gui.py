@@ -250,14 +250,23 @@ class ChatWidget(QWidget):
         self.file_button = QPushButton("Send File", self)
         self.layout.addWidget(self.file_button)
 
-        self.bottom_layout = QHBoxLayout()
-        self.layout.addLayout(self.bottom_layout)
+        self.send_layout = QHBoxLayout()
+        self.layout.addLayout(self.send_layout)
 
         self.line_edit = QLineEdit(self)
-        self.bottom_layout.addWidget(self.line_edit)
+        self.line_edit.setPlaceholderText("Type message here...")
+        self.line_edit.setStyleSheet("QLineEdit {border: 1px solid #9399b2;}"
+                                     "QLineEdit:focus {border: 1px solid #89b4fa;}")
+        self.send_layout.addWidget(self.line_edit)
 
         self.send_button = QPushButton("Send", self)
-        self.bottom_layout.addWidget(self.send_button)
+        self.send_layout.addWidget(self.send_button)
+
+        self.layout.addSpacing(30)
+
+        self.end_button = QPushButton("End Call", self)
+        self.end_button.setStyleSheet("QPushButton {background-color: #f38ba8; color: #1e1e2e;}")
+        self.layout.addWidget(self.end_button)
     
     def add_client(self, name: str):
         checkbox = QCheckBox(name, self)
@@ -383,12 +392,14 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.video_list_widget)
 
         self.sidebar = QDockWidget("Chat", self)
+        self.sidebar.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
         self.chat_widget = ChatWidget()
         self.sidebar.setWidget(self.chat_widget)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.sidebar)
         self.chat_widget.send_button.clicked.connect(lambda: self.send_msg(TEXT))
         self.chat_widget.line_edit.returnPressed.connect(lambda: self.send_msg(TEXT))
         self.chat_widget.file_button.clicked.connect(lambda: self.send_msg(FILE))
+        self.chat_widget.end_button.clicked.connect(self.close)
 
         # menus for camera and microphone toggle
         self.camera_menu = self.menuBar().addMenu("Camera")
