@@ -2,7 +2,7 @@ import os
 import cv2
 import pyaudio
 from PyQt6.QtCore import Qt, QThread, QTimer, QSize, QRunnable, pyqtSlot
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtGui import QImage, QPixmap, QActionGroup
 from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QDockWidget \
     , QLabel, QWidget, QListWidget, QListWidgetItem, QMessageBox \
     , QComboBox, QTextEdit, QLineEdit, QPushButton, QFileDialog \
@@ -12,12 +12,15 @@ from constants import *
 
 # Camera
 CAMERA_RES = '240p'
+LAYOUT_RES = '900p'
 frame_size = {
-    '240p': [352, 240],
-    '360p': [480, 360],
-    '480p': [640, 480],
-    '720p': [1080, 720],
-    '1080p': [1920, 1080]
+    '240p': (352, 240),
+    '360p': (480, 360),
+    '480p': (640, 480),
+    '560p': (800, 560),
+    '720p': (1080, 720),
+    '900p': (1400, 900),
+    # '1080p': (1920, 1080)
 }
 FRAME_WIDTH = frame_size[CAMERA_RES][0]
 FRAME_HEIGHT = frame_size[CAMERA_RES][1]
@@ -107,7 +110,7 @@ class Camera:
         ret, frame = self.cap.read()
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT), interpolation=cv2.INTER_AREA)
+            frame = cv2.resize(frame, frame_size[CAMERA_RES], interpolation=cv2.INTER_AREA)
             if ENABLE_ENCODE:
                 _, frame = cv2.imencode('.jpg', frame, ENCODE_PARAM)
             return frame
@@ -148,6 +151,8 @@ class VideoWidget(QWidget):
         elif ENABLE_ENCODE:
             frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
         
+        frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT), interpolation=cv2.INTER_AREA)
+        
         if self.client.audio_data is None:
             # replace bottom center part of the frame with nomic frame
             nomic_h, nomic_w, _ = NOMIC_FRAME.shape
@@ -185,10 +190,35 @@ class VideoListWidget(QListWidget):
         item.setSizeHint(QSize(FRAME_WIDTH, FRAME_HEIGHT))
         self.setItemWidget(item, video_widget)
         self.all_items[client.name] = item
+        self.resize_widgets()
     
+    def resize_widgets(self, res: str = None):
+        global FRAME_WIDTH, FRAME_HEIGHT, LAYOUT_RES
+        n = self.count()
+        if res is None:
+            if n <= 1:
+                res = "900p"
+            elif n <= 4:
+                res = "480p"
+            elif n <= 6:
+                res = "360p"
+            else:
+                res = "240p"
+        new_size = frame_size[res]
+        
+        if new_size == (FRAME_WIDTH, FRAME_HEIGHT):
+            return
+        else:
+            FRAME_WIDTH, FRAME_HEIGHT = new_size
+            LAYOUT_RES = res
+        
+        for i in range(n):
+            self.item(i).setSizeHint(QSize(FRAME_WIDTH, FRAME_HEIGHT))
+
     def remove_client(self, name: str):
         self.takeItem(self.row(self.all_items[name]))
         self.all_items.pop(name)
+        self.resize_widgets()
 
 
 class ChatWidget(QWidget):
@@ -363,11 +393,24 @@ class MainWindow(QMainWindow):
         # menus for camera and microphone toggle
         self.camera_menu = self.menuBar().addMenu("Camera")
         self.microphone_menu = self.menuBar().addMenu("Microphone")
+        self.layout_menu = self.menuBar().addMenu("Layout")
+        
         self.camera_menu.addAction("Disable Camera", self.toggle_camera)
         self.microphone_menu.addAction("Disable Microphone", self.toggle_microphone)
+        self.layout_actions = {}
+        layout_action_group = QActionGroup(self)
+        for res in frame_size.keys():
+            layout_action = layout_action_group.addAction(res)
+            layout_action.setCheckable(True)
+            layout_action.triggered.connect(lambda checked, res=res: self.video_list_widget.resize_widgets(res))
+            if res == LAYOUT_RES:
+                layout_action.setChecked(True)
+            self.layout_menu.addAction(layout_action)
+            self.layout_actions[res] = layout_action
     
     def add_client(self, client):
         self.video_list_widget.add_client(client)
+        self.layout_actions[LAYOUT_RES].setChecked(True)
         if ENABLE_AUDIO:
             self.audio_threads[client.name] = AudioThread(client, self)
             self.audio_threads[client.name].start()
@@ -376,6 +419,7 @@ class MainWindow(QMainWindow):
     
     def remove_client(self, name: str):
         self.video_list_widget.remove_client(name)
+        self.layout_actions[LAYOUT_RES].setChecked(True)
         if ENABLE_AUDIO:
             self.audio_threads[name].connected = False
             self.audio_threads[name].wait()

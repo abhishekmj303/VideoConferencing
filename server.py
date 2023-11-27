@@ -26,7 +26,7 @@ class Client:
         msg = Message(from_name, request, data_type, data)
         try:
             if data_type in [VIDEO, AUDIO]:
-                print(f"[{self.name}] {self.media_addrs}")
+                # print(f"[{self.name}] {self.media_addrs}")
                 addr = self.media_addrs.get(data_type, None)
                 if addr is None:
                     return
