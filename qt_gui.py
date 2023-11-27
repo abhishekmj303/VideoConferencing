@@ -2,7 +2,7 @@ import os
 import cv2
 import pyaudio
 from PyQt6.QtCore import Qt, QThread, QTimer, QSize, QRunnable, pyqtSlot
-from PyQt6.QtGui import QImage, QPixmap, QActionGroup
+from PyQt6.QtGui import QImage, QPixmap, QActionGroup, QIcon
 from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QDockWidget \
     , QLabel, QWidget, QListWidget, QListWidgetItem, QMessageBox \
     , QComboBox, QTextEdit, QLineEdit, QPushButton, QFileDialog \
@@ -30,13 +30,13 @@ ENABLE_ENCODE = True
 ENCODE_PARAM = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
 
 # frame for no camera
-NOCAM_FRAME = cv2.imread("nocam.jpeg")
+NOCAM_FRAME = cv2.imread("img/nocam.jpeg")
 # crop center part of the nocam frame
 nocam_h, nocam_w = NOCAM_FRAME.shape[:2]
 x, y = (nocam_w - FRAME_WIDTH)//2, (nocam_h - FRAME_HEIGHT)//2
 NOCAM_FRAME = NOCAM_FRAME[y:y+FRAME_HEIGHT, x:x+FRAME_WIDTH]
 # frame for no microphone
-NOMIC_FRAME = cv2.imread("nomic.jpeg")
+NOMIC_FRAME = cv2.imread("img/nomic.jpeg")
 
 # Audio
 ENABLE_AUDIO = True
@@ -395,8 +395,10 @@ class MainWindow(QMainWindow):
         self.microphone_menu = self.menuBar().addMenu("Microphone")
         self.layout_menu = self.menuBar().addMenu("Layout")
         
-        self.camera_menu.addAction("Disable Camera", self.toggle_camera)
-        self.microphone_menu.addAction("Disable Microphone", self.toggle_microphone)
+        self.camera_menu.addAction("Disable", self.toggle_camera)
+        self.camera_menu.actions()[0].setIcon(QIcon('img/cam-disable.png'))
+        self.microphone_menu.addAction("Disable", self.toggle_microphone)
+        self.microphone_menu.actions()[0].setIcon(QIcon('img/mic-disable.png'))
         self.layout_actions = {}
         layout_action_group = QActionGroup(self)
         for res in frame_size.keys():
@@ -465,14 +467,18 @@ class MainWindow(QMainWindow):
     
     def toggle_camera(self):
         if self.client.camera_enabled:
-            self.camera_menu.actions()[0].setText("Enable Camera")
+            self.camera_menu.actions()[0].setText("Enable")
+            self.camera_menu.actions()[0].setIcon(QIcon('img/cam-enable.png'))
         else:
-            self.camera_menu.actions()[0].setText("Disable Camera")
+            self.camera_menu.actions()[0].setText("Disable")
+            self.camera_menu.actions()[0].setIcon(QIcon('img/cam-disable.png'))
         self.client.camera_enabled = not self.client.camera_enabled
 
     def toggle_microphone(self):
         if self.client.microphone_enabled:
-            self.microphone_menu.actions()[0].setText("Enable Microphone")
+            self.microphone_menu.actions()[0].setText("Enable")
+            self.microphone_menu.actions()[0].setIcon(QIcon('img/mic-enable.png'))
         else:
-            self.microphone_menu.actions()[0].setText("Disable Microphone")
+            self.microphone_menu.actions()[0].setText("Disable")
+            self.microphone_menu.actions()[0].setIcon(QIcon('img/mic-disable.png'))
         self.client.microphone_enabled = not self.client.microphone_enabled
